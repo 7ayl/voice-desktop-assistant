@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能电脑助手 - 语音文件操作系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="title">🎤 智能电脑助手</h1>
+                <p class="subtitle">基于语音识别的文件操作系统</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Status Panel -->
+            <div class="status-panel">
+                <div class="status-item">
+                    <span class="status-label">系统状态:</span>
+                    <span class="status-value" id="systemStatus">检查中...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">ASR 引擎:</span>
+                    <span class="status-value" id="asrStatus">检查中...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">TTS 引擎:</span>
+                    <span class="status-value" id="ttsStatus">检查中...</span>
+                </div>
+            </div>
+
+            <!-- Main Control Panel -->
+            <section class="control-panel">
+                <h2>语音命令输入</h2>
+                
+                <!-- Recording Controls -->
+                <div class="recording-controls">
+                    <button id="recordBtn" class="btn btn-primary btn-large">
+                        <span class="btn-icon">🎙️</span>
+                        <span>开始录音</span>
+                    </button>
+                    <button id="stopBtn" class="btn btn-danger btn-large" disabled>
+                        <span class="btn-icon">⏹️</span>
+                        <span>停止录音</span>
+                    </button>
+                    <button id="clearBtn" class="btn btn-secondary">
+                        <span class="btn-icon">🗑️</span>
+                        <span>清除</span>
+                    </button>
+                </div>
+
+                <!-- Recording Status -->
+                <div class="recording-status" id="recordingStatus">
+                    <p>未开始录音</p>
+                </div>
+
+                <!-- Text Input -->
+                <div class="text-input-group">
+                    <label for="commandInput">或直接输入命令:</label>
+                    <textarea 
+                        id="commandInput" 
+                        class="command-input" 
+                        placeholder="例如: 帮我在D盘创建一个名称为'我的作业'的文件夹"
+                        rows="3"
+                    ></textarea>
+                </div>
+
+                <!-- Execute Button -->
+                <div class="action-buttons">
+                    <button id="executeBtn" class="btn btn-success btn-large">
+                        <span class="btn-icon">▶️</span>
+                        <span>执行命令</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Command Details Panel -->
+            <section class="details-panel" id="detailsPanel" style="display: none;">
+                <h2>命令解析结果</h2>
+                <div class="details-content">
+                    <div class="detail-item">
+                        <span class="detail-label">操作类型:</span>
+                        <span class="detail-value" id="detailOperation">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">文件类型:</span>
+                        <span class="detail-value" id="detailFileType">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">源文件/夹名:</span>
+                        <span class="detail-value" id="detailSourceName">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">源位置:</span>
+                        <span class="detail-value" id="detailSourcePath">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">目标位置:</span>
+                        <span class="detail-value" id="detailTargetPath">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">置信度:</span>
+                        <span class="detail-value" id="detailConfidence">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Result Panel -->
+            <section class="result-panel" id="resultPanel" style="display: none;">
+                <h2>执行结果</h2>
+                <div class="result-content" id="resultContent"></div>
+            </section>
+
+            <!-- History Panel -->
+            <section class="history-panel">
+                <div class="history-header">
+                    <h2>操作历史</h2>
+                    <button id="clearHistoryBtn" class="btn btn-small btn-secondary">
+                        清除历史
+                    </button>
+                </div>
+                <div class="history-content" id="historyContent">
+                    <p class="placeholder">暂无操作历史</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div class="loading-indicator" id="loadingIndicator">
+        <div class="spinner"></div>
+        <p id="loadingText">处理中...</p>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
