@@ -18,7 +18,7 @@
 pip install -r requirements.txt
 
 # 2. 配置环境
-cp .env.example .env
+cp .env .env
 # 编辑 .env 文件（如需使用云服务）
 
 # 3. 启动应用

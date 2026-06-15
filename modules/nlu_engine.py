@@ -1,11 +1,8 @@
-"""Natural Language Understanding (NLU) Engine Module.
-
-Parses user commands and extracts intent and parameters.
-Supports file operation commands in Chinese.
-"""
+"""Natural Language Understanding (NLU) Engine Module - 支持“X里的Y”自然语言"""
 
 import re
-from typing import Dict, Optional, Tuple, List
+import os
+from typing import Optional, Tuple
 from enum import Enum
 from dataclasses import dataclass
 from .logger import setup_logger
@@ -14,7 +11,6 @@ from config.config import Config
 logger = setup_logger(__name__)
 
 class OperationType(Enum):
-    """Supported file operation types."""
     CREATE = "create"
     DELETE = "delete"
     COPY = "copy"
@@ -24,15 +20,12 @@ class OperationType(Enum):
     UNKNOWN = "unknown"
 
 class FileType(Enum):
-    """Target file types."""
     FILE = "file"
     FOLDER = "folder"
-    DIRECTORY = "directory"
     UNKNOWN = "unknown"
 
 @dataclass
 class ParsedCommand:
-    """Represents a parsed user command."""
     operation: OperationType
     file_type: FileType
     source_name: Optional[str]
@@ -41,230 +34,250 @@ class ParsedCommand:
     target_path: Optional[str]
     confidence: float
     raw_command: str
-    
-    def is_valid(self) -> bool:
-        """Check if command is valid for execution.
-        
-        Returns:
-            True if command has sufficient information
-        """
-        return (
-            self.operation != OperationType.UNKNOWN and
-            self.confidence >= Config.NLU_CONFIDENCE_THRESHOLD
-        )
 
-class CommandPattern:
-    """Pattern matcher for command parsing."""
-    
-    # Chinese patterns for different operations
-    PATTERNS = {
-        OperationType.CREATE: [
-            r'(?:帮我)?(?:在)?([A-Za-z]:)?(?:盘)?(?:创建|新建)(?:一个)?(?:名称?[为是])?["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:的)?(?:文件夹|目录|文件)?',
-            r'(?:创建|新建)(?:文件夹|目录)?["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:在)?([A-Za-z]:)?(?:盘)?',
-        ],
-        OperationType.DELETE: [
-            r'(?:帮我)?(?:删除|移除)([A-Za-z]:)?(?:盘)?(?:里)?(?:的)?(?:名称?[为是])?["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:的)?(?:文件夹|目录|文件)?',
-            r'(?:删除|移除)["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:在)?([A-Za-z]:)?(?:盘)?',
-        ],
-        OperationType.COPY: [
-            r'(?:帮我)?(?:把|将)([A-Za-z]:)?(?:盘)?(?:里)?(?:的)?(?:名称?[为是])?["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:复制|拷贝)(?:到|在)?([A-Za-z]:)?(?:盘)?',
-            r'(?:复制|拷贝)["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:到|在)?([A-Za-z]:)?(?:盘)?',
-        ],
-        OperationType.MOVE: [
-            r'(?:帮我)?(?:把|将)([A-Za-z]:)?(?:盘)?(?:里)?(?:的)?(?:名称?[为是])?["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:移到|移动到|移|去)?([A-Za-z]:)?(?:盘)?',
-            r'(?:移动|移到)["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:到|在)?([A-Za-z]:)?(?:盘)?',
-        ],
-        OperationType.SEARCH: [
-            r'(?:帮我)?(?:在)([A-Za-z]:)?(?:盘)?(?:查找|搜索|寻找)(?:是否有)?(?:名称)?(?:包含)?["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:的)?(?:文件|目录)?',
-            r'(?:查找|搜索|寻找)["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:在)?([A-Za-z]:)?(?:盘)?',
-        ],
-        OperationType.RENAME: [
-            r'(?:帮我)?(?:把|将)([A-Za-z]:)?(?:盘)?(?:里)?(?:的)?(?:名称?[为是])?["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:改?(?:名)?(?:为|成))\s*["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*',
-            r'(?:重命名|改名)["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*(?:为|成)["\'\'\"]*([^\\/:*?"<>|\n]+)["\'\'\"]*',
-        ],
-    }
-    
-    @classmethod
-    def match_patterns(cls, command: str, operation_type: OperationType) -> Optional[Tuple[float, Dict]]:
-        """Match command against patterns for an operation type.
-        
-        Args:
-            command: User command text
-            operation_type: Target operation type
-            
-        Returns:
-            Tuple of (confidence, match_groups) or None if no match
-        """
-        patterns = cls.PATTERNS.get(operation_type, [])
-        
-        for pattern in patterns:
-            match = re.search(pattern, command, re.IGNORECASE)
-            if match:
-                # Extract groups and calculate confidence
-                groups = match.groups()
-                confidence = 0.85 + (0.1 * len([g for g in groups if g]))
-                confidence = min(confidence, 0.99)
-                
-                return confidence, {'groups': groups, 'span': match.span()}
-        
-        return None
+    def is_valid(self) -> bool:
+        return (self.operation != OperationType.UNKNOWN and
+                self.confidence >= Config.NLU_CONFIDENCE_THRESHOLD)
+
 
 class NLUEngine:
-    """Natural Language Understanding Engine for command parsing."""
-    
     def __init__(self):
-        """Initialize NLU Engine."""
-        self.operation_keywords = {
-            OperationType.CREATE: ['创建', '新建', '建立'],
-            OperationType.DELETE: ['删除', '移除', '清除', '摧毁'],
-            OperationType.COPY: ['复制', '拷贝', '备份'],
-            OperationType.MOVE: ['移动', '移到', '移入', '转移'],
-            OperationType.SEARCH: ['查找', '搜索', '寻找', '查询'],
-            OperationType.RENAME: ['改名', '重命名', '改成', '改为'],
-        }
-        logger.info("NLU Engine initialized")
-    
-    def parse(self, command: str) -> 'ParsedCommand':
-        """Parse user command into structured format.
-        
-        Args:
-            command: User input command text
-            
-        Returns:
-            ParsedCommand object with extracted information
-        """
+        logger.info("NLU Engine initialized (support 'X里的Y')")
+
+    def parse(self, command: str) -> ParsedCommand:
         logger.info(f"Parsing command: {command}")
-        
-        # Detect operation type
-        operation_type = self._detect_operation(command)
-        
-        # Try to match patterns
-        match_result = CommandPattern.match_patterns(command, operation_type)
-        
-        if match_result:
-            confidence, match_data = match_result
-            groups = match_data['groups']
-            
-            # Extract information based on operation type
-            parsed = self._extract_info(
-                command=command,
-                operation=operation_type,
-                groups=groups,
-                confidence=confidence
-            )
+        cmd = command.strip('。，！？')
+
+        # 1. 创建文件夹
+        if '创建文件夹' in cmd or ('创建' in cmd and '文件夹' in cmd):
+            return self._parse_create_folder(cmd)
+
+        # 2. 创建页面
+        if '创建页面' in cmd or ('创建' in cmd and '页面' in cmd):
+            return self._parse_create_page(cmd)
+
+        # 3. 删除
+        if cmd.startswith('删除'):
+            return self._parse_delete(cmd)
+
+        # 4. 重命名
+        if '重命名' in cmd or '改名为' in cmd:
+            return self._parse_rename(cmd)
+
+        # 5. 搜索
+        if cmd.startswith('搜索') or cmd.startswith('查找'):
+            return self._parse_search(cmd)
+
+        # 6. 复制
+        if cmd.startswith('复制') or cmd.startswith('拷贝'):
+            return self._parse_copy(cmd)
+
+        # 7. 移动
+        if cmd.startswith('移动') or cmd.startswith('移到'):
+            return self._parse_move(cmd)
+
+        return ParsedCommand(OperationType.UNKNOWN, FileType.UNKNOWN,
+                             None, None, None, None, 0.0, command)
+
+    def _parse_create_folder(self, cmd: str) -> ParsedCommand:
+        match = re.search(r'创建文件夹\s*([^\s，。]+)', cmd)
+        if match:
+            name = match.group(1)
         else:
-            # Fallback parsing
-            parsed = ParsedCommand(
-                operation=OperationType.UNKNOWN,
-                file_type=FileType.UNKNOWN,
-                source_name=None,
-                source_path=None,
-                target_name=None,
-                target_path=None,
-                confidence=0.0,
-                raw_command=command
-            )
-        
-        logger.info(f"Parsed command: operation={parsed.operation.value}, "
-                   f"source={parsed.source_name}, target={parsed.target_name}, "
-                   f"confidence={parsed.confidence}")
-        
-        return parsed
-    
-    def _detect_operation(self, command: str) -> OperationType:
-        """Detect operation type from command keywords.
-        
-        Args:
-            command: User command
-            
-        Returns:
-            Detected OperationType
-        """
-        command_lower = command.lower()
-        
-        for op_type, keywords in self.operation_keywords.items():
-            for keyword in keywords:
-                if keyword in command:
-                    return op_type
-        
-        return OperationType.UNKNOWN
-    
-    def _extract_info(self, command: str, operation: OperationType, 
-                      groups: Tuple, confidence: float) -> ParsedCommand:
-        """Extract detailed information from matched groups.
-        
-        Args:
-            command: Original command
-            operation: Detected operation type
-            groups: Regex match groups
-            confidence: Match confidence score
-            
-        Returns:
-            ParsedCommand with extracted information
-        """
-        source_name = None
-        source_path = None
-        target_name = None
-        target_path = None
-        file_type = self._detect_file_type(command)
-        
-        # Extract information based on operation type
-        if operation == OperationType.CREATE:
-            source_path = groups[0] if len(groups) > 0 else None
-            source_name = groups[1] if len(groups) > 1 else None
-        
-        elif operation == OperationType.DELETE:
-            source_path = groups[0] if len(groups) > 0 else None
-            source_name = groups[1] if len(groups) > 1 else None
-        
-        elif operation == OperationType.COPY:
-            source_path = groups[0] if len(groups) > 0 else None
-            source_name = groups[1] if len(groups) > 1 else None
-            target_path = groups[2] if len(groups) > 2 else None
-        
-        elif operation == OperationType.MOVE:
-            source_path = groups[0] if len(groups) > 0 else None
-            source_name = groups[1] if len(groups) > 1 else None
-            target_path = groups[2] if len(groups) > 2 else None
-        
-        elif operation == OperationType.SEARCH:
-            source_path = groups[0] if len(groups) > 0 else None
-            source_name = groups[1] if len(groups) > 1 else None
-        
-        elif operation == OperationType.RENAME:
-            source_path = groups[0] if len(groups) > 0 else None
-            source_name = groups[1] if len(groups) > 1 else None
-            target_name = groups[2] if len(groups) > 2 else None
-        
+            match = re.search(r'在(?:桌面|文档|下载)?创建文件夹[，,]*\s*([^\s，。]+)', cmd)
+            name = match.group(1) if match else "新文件夹"
+        location = "桌面"
+        source_path = self._to_abs_path(location)
         return ParsedCommand(
-            operation=operation,
-            file_type=file_type,
+            operation=OperationType.CREATE,
+            file_type=FileType.FOLDER,
+            source_name=name,
+            source_path=source_path,
+            target_name=None, target_path=None,
+            confidence=0.95, raw_command=cmd
+        )
+
+    def _parse_create_page(self, cmd: str) -> ParsedCommand:
+        match = re.search(r'在([^\s]+?)里面?创建(?:一个)?页面([^\s，。！？]+)', cmd)
+        if match:
+            location = match.group(1)
+            name = match.group(2)
+        else:
+            name = "新页面"
+            location = "桌面"
+        if location not in ['桌面','文档','下载']:
+            source_path = os.path.join(os.path.expanduser("~/Desktop"), location)
+        else:
+            source_path = self._to_abs_path(location)
+        return ParsedCommand(
+            operation=OperationType.CREATE,
+            file_type=FileType.FILE,
+            source_name=name,
+            source_path=source_path,
+            target_name=None, target_path=None,
+            confidence=0.95, raw_command=cmd
+        )
+
+    def _parse_delete(self, cmd: str) -> ParsedCommand:
+        # 移除常见的修饰词（包括“桌面上的”、“的”等），但要保留核心名称
+        # 先用正则提取出目标名称：删除后面的内容，直到遇到结尾或“文件夹/页面”
+        import re
+        # 匹配 "删除" 后面的非空格部分（可能含有中文、字母、数字）
+        match = re.search(r'删除\s*([^\s]+?)(?:文件夹|页面)?$', cmd)
+        if not match:
+            # 再尝试匹配带“桌面上的”等前缀的情况
+            match = re.search(r'删除\s*(?:桌面上的|里的)?\s*([^\s]+?)(?:文件夹|页面)?$', cmd)
+        if match:
+            target = match.group(1).strip()
+        else:
+            return ParsedCommand(OperationType.UNKNOWN, FileType.UNKNOWN, None, None, None, None, 0.0, cmd)
+        # 去除可能残留的“文件夹”或“页面”（实际上正则已处理，但安全起见）
+        for word in ['文件夹', '页面']:
+            target = target.replace(word, '')
+        if not target:
+            return ParsedCommand(OperationType.UNKNOWN, FileType.UNKNOWN, None, None, None, None, 0.0, cmd)
+        # 判断是否包含路径分隔符
+        if '/' in target or '\\' in target:
+            source_path = os.path.dirname(target)
+            source_name = os.path.basename(target)
+        else:
+            source_name = target
+            source_path = os.path.expanduser("~/Desktop")
+        return ParsedCommand(
+            operation=OperationType.DELETE,
+            file_type=FileType.UNKNOWN,
             source_name=source_name,
             source_path=source_path,
-            target_name=target_name,
-            target_path=target_path,
-            confidence=confidence,
-            raw_command=command
+            target_name=None, target_path=None,
+            confidence=0.95, raw_command=cmd
         )
-    
-    def _detect_file_type(self, command: str) -> FileType:
-        """Detect whether command refers to file or folder.
-        
-        Args:
-            command: User command
-            
-        Returns:
-            Detected FileType
-        """
-        folder_keywords = ['文件夹', '目录', '文件夹']
-        file_keywords = ['文件', '文本']
-        
-        for keyword in folder_keywords:
-            if keyword in command:
-                return FileType.FOLDER
-        
-        for keyword in file_keywords:
-            if keyword in command:
-                return FileType.FILE
-        
-        return FileType.UNKNOWN
+
+    def _parse_rename(self, cmd: str) -> ParsedCommand:
+        match = re.search(r'(?:重命名|把)\s*([^\s]+)\s*(?:为|重命名为)\s*([^\s]+)', cmd)
+        if match:
+            old = match.group(1)
+            new = match.group(2)
+        else:
+            return ParsedCommand(OperationType.UNKNOWN, FileType.UNKNOWN, None, None, None, None, 0.0, cmd)
+        return ParsedCommand(
+            operation=OperationType.RENAME,
+            file_type=FileType.FOLDER,
+            source_name=old,
+            source_path=os.path.expanduser("~/Desktop"),
+            target_name=new,
+            target_path=None,
+            confidence=0.95, raw_command=cmd
+        )
+
+    def _parse_search(self, cmd: str) -> ParsedCommand:
+        match = re.search(r'(?:查找|搜索)\s*([^\s]+)\s*在\s*([^\s]+)', cmd)
+        if match:
+            keyword = match.group(1)
+            location = match.group(2)
+        else:
+            keyword = cmd.split()[-1] if len(cmd.split()) > 1 else ""
+            location = "桌面"
+        if location not in ['桌面','文档','下载']:
+            location = os.path.join(os.path.expanduser("~/Desktop"), location)
+        else:
+            location = self._to_abs_path(location)
+        return ParsedCommand(
+            operation=OperationType.SEARCH,
+            file_type=FileType.UNKNOWN,
+            source_name=keyword,
+            source_path=location,
+            target_name=None, target_path=None,
+            confidence=0.95, raw_command=cmd
+        )
+
+    def _parse_copy(self, cmd: str) -> ParsedCommand:
+        # 优先匹配 "复制 X里的Y 到 Z" 模式
+        match = re.search(r'复制\s*([^\s]+?)里(?:面)?的?\s*([^\s]+?)\s*到\s*([^\s]+)', cmd)
+        if match:
+            folder = match.group(1).strip()
+            item = match.group(2).strip()
+            target = match.group(3).strip()
+            # source_name 是项目名，source_path 是文件夹名（相对桌面）
+            return ParsedCommand(
+                operation=OperationType.COPY,
+                file_type=FileType.UNKNOWN,
+                source_name=item,
+                source_path=folder,      # 文件夹名，稍后在 file_operator 中解析
+                target_name=None,
+                target_path=target,
+                confidence=0.95,
+                raw_command=cmd
+            )
+        # 后备模式：复制 a/b 到 c
+        match = re.search(r'复制\s*([^\s]+)\s*到\s*([^\s]+)', cmd)
+        if match:
+            source = match.group(1)
+            target = match.group(2)
+            if '/' in source or '\\' in source:
+                source_path = os.path.dirname(source)
+                source_name = os.path.basename(source)
+            else:
+                source_name = source
+                source_path = "桌面"
+            target_path = self._to_abs_path(target)
+            return ParsedCommand(
+                operation=OperationType.COPY,
+                file_type=FileType.FILE,
+                source_name=source_name,
+                source_path=source_path,
+                target_name=None,
+                target_path=target_path,
+                confidence=0.9,
+                raw_command=cmd
+            )
+        return ParsedCommand(OperationType.UNKNOWN, FileType.UNKNOWN, None, None, None, None, 0.0, cmd)
+
+    def _parse_move(self, cmd: str) -> ParsedCommand:
+        # 优先匹配 "移动 X里的Y 到 Z"
+        match = re.search(r'移动\s*([^\s]+?)里(?:面)?的?\s*([^\s]+?)\s*到\s*([^\s]+)', cmd)
+        if match:
+            folder = match.group(1).strip()
+            item = match.group(2).strip()
+            target = match.group(3).strip()
+            return ParsedCommand(
+                operation=OperationType.MOVE,
+                file_type=FileType.UNKNOWN,
+                source_name=item,
+                source_path=folder,
+                target_name=None,
+                target_path=target,
+                confidence=0.95,
+                raw_command=cmd
+            )
+        match = re.search(r'移动\s*([^\s]+)\s*到\s*([^\s]+)', cmd)
+        if match:
+            source = match.group(1)
+            target = match.group(2)
+            if '/' in source or '\\' in source:
+                source_path = os.path.dirname(source)
+                source_name = os.path.basename(source)
+            else:
+                source_name = source
+                source_path = "桌面"
+            target_path = self._to_abs_path(target)
+            return ParsedCommand(
+                operation=OperationType.MOVE,
+                file_type=FileType.FILE,
+                source_name=source_name,
+                source_path=source_path,
+                target_name=None,
+                target_path=target_path,
+                confidence=0.9,
+                raw_command=cmd
+            )
+        return ParsedCommand(OperationType.UNKNOWN, FileType.UNKNOWN, None, None, None, None, 0.0, cmd)
+
+    def _to_abs_path(self, location: str) -> str:
+        if location == '桌面':
+            return os.path.expanduser("~/Desktop")
+        elif location == '文档':
+            return os.path.expanduser("~/Documents")
+        elif location == '下载':
+            return os.path.expanduser("~/Downloads")
+        else:
+            return location if os.path.isabs(location) else os.path.join(os.path.expanduser("~/Desktop"), location)

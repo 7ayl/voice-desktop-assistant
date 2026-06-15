@@ -67,50 +67,35 @@ class EdgeTTS(TTSBase):
         except ImportError:
             logger.error("edge_tts not installed. Install with: pip install edge-tts")
             self.communicate = None
-    
+
     def synthesize(self, text: str) -> bytes:
-        """Synthesize text using Edge TTS.
-        
-        Args:
-            text: Text to synthesize
-            
-        Returns:
-            Audio data in bytes (MP3 format from Edge TTS)
-        """
+        """Synthesize text using Edge TTS (new API)."""
         if not text or not text.strip():
             raise ValueError("Text cannot be empty")
-        
         if self.communicate is None:
             raise RuntimeError("Edge TTS engine not available")
-        
         try:
             import asyncio
-            
+
             async def _synthesize():
-                """Async synthesis function."""
                 audio_data = io.BytesIO()
-                
                 communicate = self.communicate(
                     text,
                     voice=self.voice,
-                    rate=0,  # Normal speed
+                    rate="+0%"
                 )
-                
-                async for chunk in communicate.stream_by_chunk(chunk_size=1024):
+                # 新版 edge-tts 使用 stream() 而不是 stream_by_chunk
+                async for chunk in communicate.stream():
                     if chunk["type"] == "audio":
                         audio_data.write(chunk["data"])
-                
                 return audio_data.getvalue()
-            
-            # Run async function
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             audio_bytes = loop.run_until_complete(_synthesize())
             loop.close()
-            
             logger.info(f"TTS synthesis completed, audio size: {len(audio_bytes)} bytes")
             return audio_bytes
-            
         except Exception as e:
             logger.error(f"Edge TTS synthesis failed: {str(e)}")
             raise
